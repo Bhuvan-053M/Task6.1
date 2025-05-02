@@ -1,0 +1,78 @@
+pipeline {
+    agent any
+
+    environment {
+        DIRECTORY_PATH = '/var/lib/jenkins/workspace/Task6.1'
+        TESTING_ENVIRONMENT = 'QA-Staging'
+        PRODUCTION_ENVIRONMENT = 'Production-Cluster'
+        SONARQUBE_SERVER = 'SonarQube-Server'
+    }
+
+    tools {
+        maven 'Maven 3.9'
+        jdk 'JDK 17'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "Cloning repository from GitHub..."
+                git branch: 'main', url: 'https://github.com/Bhuvan-053M/Task6.1.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                dir("${env.DIRECTORY_PATH}") {
+                    echo "Running Maven build..."
+                    sh 'mvn clean install -DskipTests'
+                }
+            }
+        }
+
+        stage('Test') {
+            steps {
+                dir("${env.DIRECTORY_PATH}") {
+                    echo "Running unit and integration tests..."
+                    sh 'mvn test'
+                }
+            }
+            post {
+                always {
+                    junit '**/target/surefire-reports/*.xml'
+                }
+            }
+        }
+
+        stage('Code Quality Check') {
+            steps {
+                dir("${env.DIRECTORY_PATH}") {
+                    withSonarQubeEnv("${env.SONARQUBE_SERVER}") {
+                        echo "Performing static code analysis with SonarQube..."
+                        sh 'mvn sonar:sonar'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy to QA') {
+            steps {
+                echo "Deploying to ${env.TESTING_ENVIRONMENT} environment..."
+                sh 'kubectl apply -f deployment/k8s.yaml --namespace=qa'
+            }
+        }
+
+        stage('Approval') {
+            steps {
+                input message: 'Approve deployment to Production?', ok: 'Deploy'
+            }
+        }
+
+        stage('Deploy to Production') {
+            steps {
+                echo "Deploying to ${env.PRODUCTION_ENVIRONMENT}..."
+                sh 'kubectl apply -f deployment/k8s.yaml --namespace=production'
+            }
+        }
+    }
+}
